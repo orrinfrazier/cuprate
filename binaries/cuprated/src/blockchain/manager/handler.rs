@@ -34,6 +34,7 @@ use cuprate_types::{
 use crate::{
     blockchain::manager::commands::{BlockchainManagerCommand, IncomingBlockOk},
     constants::PANIC_CRITICAL_SERVICE_ERROR,
+    events::NodeEvent,
 };
 
 impl super::BlockchainManager {
@@ -469,14 +470,15 @@ impl super::BlockchainManager {
 
         match reorg_res {
             Ok(()) => {
-                info!(
-                    top_hash = hex::encode(
-                        self.blockchain_context_service
-                            .blockchain_context()
-                            .top_hash
-                    ),
-                    "Successfully reorged"
-                );
+                let ctx = self.blockchain_context_service.blockchain_context();
+                let new_top_hash = ctx.top_hash;
+                let new_chain_height = ctx.chain_height;
+                info!(top_hash = hex::encode(new_top_hash), "Successfully reorged");
+                self.node_events.send(NodeEvent::Reorg {
+                    split_height,
+                    new_top_hash,
+                    new_chain_height,
+                });
                 Ok(())
             }
             Err(e) => {
@@ -635,6 +637,9 @@ impl super::BlockchainManager {
         verified_block: VerifiedBlockInformation,
         source: BlockSource,
     ) {
+        let height = verified_block.height;
+        let hash = verified_block.block_hash;
+
         // FIXME: this is pretty inefficient, we should probably return the KI map created in the consensus crate.
         let spent_key_images = verified_block
             .txs
@@ -655,6 +660,10 @@ impl super::BlockchainManager {
 
         self.add_valid_block_to_blockchain_database(verified_block)
             .await;
+
+        if matches!(source, BlockSource::Incoming) {
+            self.node_events.send(NodeEvent::NewBlock { height, hash });
+        }
 
         if let Some(block_blob) = block_blob {
             let chain_height = self
