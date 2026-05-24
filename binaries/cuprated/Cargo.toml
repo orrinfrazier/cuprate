@@ -103,6 +103,7 @@ tracing               = { workspace = true, features = ["default"] }
 [dev-dependencies]
 tempfile          = { workspace = true }
 pretty_assertions = { workspace = true }
+syn               = { workspace = true }
 
 [build-dependencies]
 cuprate-hex = { workspace = true }

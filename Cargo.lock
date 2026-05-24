@@ -1595,6 +1595,7 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "strum",
+ "syn 2.0.117",
  "sysinfo 0.38.0",
  "tempfile",
  "thiserror 2.0.18",
