@@ -35,6 +35,7 @@ thiserror    = { workspace = true, features = ["std"] }
 cuprate-constants  = { workspace = true }
 
 proptest          = { workspace = true }
+tempfile          = { workspace = true }
 
 [lints]
 workspace = true

@@ -8,6 +8,7 @@ use cuprate_helper::cast::{u64_to_usize, usize_to_u64};
 
 use crate::{
     config::Config,
+    constants::DATABASE_VERSION,
     types::{Amount, BlockInfo, RctOutput, TxInfo},
     BlockchainError,
 };
@@ -142,6 +143,11 @@ impl BlockchainDatabase {
         config: &Config,
         fjall: fjall::Database,
     ) -> Result<Self, BlockchainError> {
+        // Verify (or initialize) the on-disk format version BEFORE opening the tapes, so an
+        // incompatible database is refused without creating any tape files.
+        let metadata = fjall.keyspace("metadata", KeyspaceCreateOptions::default)?;
+        Self::check_or_init_format_version(&metadata)?;
+
         let block_heights = fjall.keyspace("block_heights", KeyspaceCreateOptions::default)?;
         let key_images = fjall.keyspace("key_images", KeyspaceCreateOptions::default)?;
         let pre_rct_outputs = fjall.keyspace("pre_rct_outputs", KeyspaceCreateOptions::default)?;
@@ -252,6 +258,32 @@ impl BlockchainDatabase {
         })
     }
 
+    /// Reads `b"format_version"` from `metadata`. If absent, stamps `DATABASE_VERSION`.
+    /// If present and equal, ok. Otherwise returns `DbFormatVersionMismatch` (never panics).
+    fn check_or_init_format_version(metadata: &fjall::Keyspace) -> Result<(), BlockchainError> {
+        match metadata.get(b"format_version")? {
+            None => {
+                metadata.insert(b"format_version", DATABASE_VERSION.to_le_bytes())?;
+                Ok(())
+            }
+            Some(bytes) => {
+                let mut found_bytes = [0_u8; 8];
+                let len = bytes.len().min(found_bytes.len());
+                found_bytes[..len].copy_from_slice(&bytes[..len]);
+                let found = u64::from_le_bytes(found_bytes);
+
+                if found == DATABASE_VERSION && bytes.len() == found_bytes.len() {
+                    Ok(())
+                } else {
+                    Err(BlockchainError::DbFormatVersionMismatch {
+                        expected: DATABASE_VERSION,
+                        found,
+                    })
+                }
+            }
+        }
+    }
+
     /// Checks if the fjall and tapes database are in sync and rebuilds the fjall database if it
     /// is not.
     pub fn make_consistent(&self) -> Result<(), BlockchainError> {
@@ -351,5 +383,108 @@ impl Drop for BlockchainDatabase {
         let _ = self.fjall.persist(PersistMode::SyncAll);
 
         let _ = self.linear_tapes.append().commit(Persistence::SyncAll);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fjall::KeyspaceCreateOptions;
+
+    use super::BlockchainDatabase;
+    use crate::{config::Config, constants::DATABASE_VERSION, error::BlockchainError};
+
+    #[test]
+    fn fresh_db_open_stamps_format_version_in_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config {
+            blob_dir: dir.path().into(),
+            index_dir: dir.path().into(),
+            ..Default::default()
+        };
+        let fjall = fjall::Database::builder(dir.path()).open().unwrap();
+
+        let db = BlockchainDatabase::open_with_fjall_database(&config, fjall).unwrap();
+
+        let metadata = db
+            .fjall
+            .keyspace("metadata", KeyspaceCreateOptions::default)
+            .unwrap();
+        assert_eq!(
+            metadata.get(b"format_version").unwrap().as_deref(),
+            Some(DATABASE_VERSION.to_le_bytes().as_slice())
+        );
+    }
+
+    #[test]
+    fn reopening_db_with_matching_stored_version_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config {
+            blob_dir: dir.path().into(),
+            index_dir: dir.path().into(),
+            ..Default::default()
+        };
+
+        let fjall = fjall::Database::builder(dir.path()).open().unwrap();
+        let db = BlockchainDatabase::open_with_fjall_database(&config, fjall).unwrap();
+        drop(db);
+
+        let fjall = fjall::Database::builder(dir.path()).open().unwrap();
+        let reopened = BlockchainDatabase::open_with_fjall_database(&config, fjall);
+
+        assert!(reopened.is_ok());
+    }
+
+    #[test]
+    fn opening_db_with_mismatched_stored_version_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config {
+            blob_dir: dir.path().into(),
+            index_dir: dir.path().into(),
+            ..Default::default()
+        };
+        let fjall = fjall::Database::builder(dir.path()).open().unwrap();
+        let metadata = fjall
+            .keyspace("metadata", KeyspaceCreateOptions::default)
+            .unwrap();
+        metadata
+            .insert(b"format_version", 999_u64.to_le_bytes())
+            .unwrap();
+
+        let result = BlockchainDatabase::open_with_fjall_database(&config, fjall);
+
+        assert!(matches!(
+            result,
+            Err(BlockchainError::DbFormatVersionMismatch {
+                expected,
+                found
+            }) if expected == DATABASE_VERSION && found == 999
+        ));
+    }
+
+    #[test]
+    fn opening_db_with_malformed_stored_version_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config {
+            blob_dir: dir.path().into(),
+            index_dir: dir.path().into(),
+            ..Default::default()
+        };
+        let fjall = fjall::Database::builder(dir.path()).open().unwrap();
+        let metadata = fjall
+            .keyspace("metadata", KeyspaceCreateOptions::default)
+            .unwrap();
+        metadata.insert(b"format_version", b"bad").unwrap();
+
+        let result = BlockchainDatabase::open_with_fjall_database(&config, fjall);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn db_version_property_matches_database_version_constant() {
+        assert_eq!(
+            crate::ops::property::db_version().unwrap(),
+            DATABASE_VERSION
+        );
     }
 }

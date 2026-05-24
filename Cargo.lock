@@ -1065,6 +1065,7 @@ dependencies = [
  "rayon",
  "serde",
  "tapes",
+ "tempfile",
  "thiserror 2.0.18",
  "tower",
  "tracing",
