@@ -125,6 +125,11 @@ opt-level     = 1
 # but you only build these once.
 opt-level = 3
 
+# MSRV policy: Cuprate targets only the latest stable Rust. `rust-version` tracks the
+# toolchain pinned in `/rust-toolchain.toml` by policy — it is not a measured lower bound.
+[workspace.package]
+rust-version = "1.94"
+
 [workspace.dependencies]
 # Cuprate members
 cuprate-fast-sync         = { path = "consensus/fast-sync",       default-features = false }

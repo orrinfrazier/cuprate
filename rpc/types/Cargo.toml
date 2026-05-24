@@ -2,6 +2,7 @@
 name        = "cuprate-rpc-types"
 version     = "0.0.0"
 edition     = "2021"
+rust-version.workspace = true
 description = "Monero RPC types"
 license     = "MIT"
 authors     = ["hinto-janai"]

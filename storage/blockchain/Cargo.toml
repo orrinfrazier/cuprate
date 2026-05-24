@@ -2,6 +2,7 @@
 name        = "cuprate-blockchain"
 version     = "0.0.0"
 edition     = "2021"
+rust-version.workspace = true
 description = "Cuprate's blockchain database"
 license     = "MIT"
 authors     = ["boog900", "hinto-janai"]

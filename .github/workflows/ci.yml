@@ -42,7 +42,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          # Keep in sync with /rust-toolchain.toml (MSRV S06-1)
+          toolchain: 1.94.0
           components: rustfmt
       - name: Format
         run: cargo fmt --all --check
@@ -80,7 +81,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          # Keep in sync with /rust-toolchain.toml (MSRV S06-1)
+          toolchain: 1.94.0
           targets: wasm32-unknown-unknown
 
       - name: Build WASM 32-bit
@@ -108,7 +110,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          # Keep in sync with /rust-toolchain.toml (MSRV S06-1)
+          toolchain: 1.94.0
           components: clippy
 
       - name: Cache
@@ -172,7 +175,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          # Keep in sync with /rust-toolchain.toml (MSRV S06-1)
+          toolchain: 1.94.0
           components: clippy
 
       - name: Download monerod
