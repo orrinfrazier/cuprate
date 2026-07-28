@@ -35,3 +35,6 @@ pub mod blockchain;
 pub mod output;
 pub mod property;
 pub mod tx;
+
+#[cfg(test)]
+mod tests;
