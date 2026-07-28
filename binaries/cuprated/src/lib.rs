@@ -40,6 +40,7 @@ pub mod logging;
 pub mod monitor;
 pub mod version;
 
+mod events;
 mod p2p;
 mod rpc;
 mod tor;
@@ -61,10 +62,13 @@ use crate::{
     blockchain::{BlockchainInterface, BlockchainManagerHandle, Syncer, SyncerHandle},
     config::Config,
     constants::DATABASE_CORRUPT_MSG,
+    events::NodeEventSender,
     monitor::TaskExecutor,
     tor::initialize_tor_if_enabled,
     txpool::IncomingTxHandler,
 };
+
+pub use events::{NodeEvent, NodeEventListener};
 
 /// Captures the necessary context for launching the node.
 ///
@@ -95,6 +99,9 @@ pub(crate) struct LaunchContext {
     /// Syncer handle.
     pub syncer: SyncerHandle,
 
+    /// Sender for the node event stream.
+    pub node_events: NodeEventSender,
+
     /// Task spawning and shutdown coordination.
     pub task_executor: TaskExecutor,
 }
@@ -118,6 +125,9 @@ pub struct Node {
 
     /// Syncer handle.
     pub syncer: SyncerHandle,
+
+    /// Sender for the node event stream.
+    node_events: NodeEventSender,
 
     /// The configuration this node was launched with.
     pub config: Arc<Config>,
@@ -210,6 +220,8 @@ impl Node {
             blockchain_manager_handle.clone(),
         );
 
+        let node_events = NodeEventSender::new();
+
         // Create the launch context.
         let launch_ctx = LaunchContext {
             config,
@@ -217,6 +229,7 @@ impl Node {
             blockchain: blockchain_interface,
             txpool_read: txpool_read_handle.clone(),
             syncer: syncer_handle,
+            node_events,
             task_executor: TaskExecutor::new(),
         };
 
@@ -280,6 +293,7 @@ impl Node {
             blockchain,
             txpool_read,
             syncer,
+            node_events,
             config,
             task_executor,
             ..
@@ -291,6 +305,7 @@ impl Node {
             clearnet: clearnet_interface,
             tor: if tor_enabled { Some(tor_rx) } else { None },
             syncer,
+            node_events,
             config,
             task_executor,
         })
@@ -299,6 +314,13 @@ impl Node {
     /// Trigger a graceful shutdown.
     pub fn shutdown(&self) {
         self.task_executor.trigger_shutdown();
+    }
+
+    /// Subscribe to a forward-looking stream of [`NodeEvent`]s emitted by this node.
+    ///
+    /// Each call returns an independent listener. Events published before the call are not replayed.
+    pub fn events(&self) -> NodeEventListener {
+        self.node_events.subscribe()
     }
 
     /// Wait for shutdown to be triggered, then await all tracked tasks.
