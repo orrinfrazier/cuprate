@@ -11,6 +11,13 @@ on:
 env:
   # Show colored output in CI.
   CARGO_TERM_COLOR: always
+  # Show full panics.
+  RUST_BACKTRACE: "full"
+  # Increase thread stack size to 8 megabytes.
+  RUST_MIN_STACK: 8000000
+  # Build commands.
+  CMD_CLIPPY: cargo clippy --all-features --all-targets -- -D warnings
+  CMD_TEST: cargo test --all-features
   # The folder used to store release files - this will be uploaded.
   ARCHIVE: "__ARCHIVE"
 
@@ -42,6 +49,20 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
+          components: clippy
+
+      - name: Install dependencies (Windows)
+        if: matrix.os == 'windows-2022'
+        uses: lukka/get-cmake@v3.31.6 # Needed for `randomx-rs`
+
+      - name: Download monerod
+        uses: ./.github/actions/monerod-download
+
+      - name: Clippy (fail on warnings)
+        run: ${{ env.CMD_CLIPPY }}
+
+      - name: Test
+        run: ${{ env.CMD_TEST }}
 
       - name: Build
         run: cargo build --release --package cuprated
