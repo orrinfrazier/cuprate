@@ -33,6 +33,8 @@ thiserror    = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
 cuprate-constants  = { workspace = true }
+cuprate-test-utils = { workspace = true }
+tempfile           = { workspace = true }
 
 proptest          = { workspace = true }
 
