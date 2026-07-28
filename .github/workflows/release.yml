@@ -41,7 +41,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          # Keep in sync with /rust-toolchain.toml (MSRV S06-1)
+          toolchain: 1.94.0
 
       - name: Build
         run: cargo build --release --package cuprated

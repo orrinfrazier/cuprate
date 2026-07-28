@@ -2,6 +2,7 @@
 name = "cuprate-cryptonight"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "A wrapper around Monero's CryptoNight hash function."
 license = "MIT"
 authors = ["dimalinux", "Boog900", "The Monero Project"]
