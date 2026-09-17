@@ -5,6 +5,9 @@ mod key_images;
 mod tx_read;
 mod tx_write;
 
+#[cfg(test)]
+mod tests;
+
 use crate::error::TxPoolError;
 pub use tx_read::{get_transaction_verification_data, in_stem_pool};
 pub use tx_write::{add_transaction, remove_transaction};
