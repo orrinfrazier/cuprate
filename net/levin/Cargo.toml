@@ -2,6 +2,7 @@
 name = "cuprate-levin"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "A crate for working with the Levin protocol in Rust."
 license = "MIT"
 authors = ["Boog900"]

@@ -2,6 +2,7 @@
 name        = "cuprate-json-rpc"
 version     = "0.0.0"
 edition     = "2021"
+rust-version.workspace = true
 description = "JSON-RPC 2.0 implementation"
 license     = "MIT"
 authors     = ["hinto-janai"]

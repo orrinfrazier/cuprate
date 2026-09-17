@@ -2,6 +2,7 @@
 name = "cuprate-helper"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "Helper functions used around Cuprate."
 license = "MIT"
 authors = ["hinto-janai <hinto.janai@protonmail.com>", "Boog900"]

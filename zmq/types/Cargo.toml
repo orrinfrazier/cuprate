@@ -2,6 +2,7 @@
 name = "cuprate-zmq-types"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "Types for the ZMQ Pub/Sub API"
 license = "MIT"
 authors = ["dimalinux"]

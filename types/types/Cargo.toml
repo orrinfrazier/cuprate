@@ -2,6 +2,7 @@
 name        = "cuprate-types"
 version     = "0.0.0"
 edition     = "2021"
+rust-version.workspace = true
 description = "Cuprate data types"
 license     = "MIT"
 authors     = ["hinto-janai"]

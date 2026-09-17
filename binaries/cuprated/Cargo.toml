@@ -2,6 +2,7 @@
 name = "cuprated"
 version = "0.0.9"
 edition = "2021"
+rust-version.workspace = true
 description = "The Cuprate Rust Monero node."
 license = "AGPL-3.0-only"
 authors = ["Boog900", "hinto-janai", "SyntheticBird45"]
