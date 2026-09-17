@@ -78,7 +78,7 @@ fn write_block(db: &BlockchainDatabase, block: &VerifiedBlockInformation) {
         db,
         &block.block,
         &block.block_hash,
-        block.txs.iter().map(|tx| Cow::Borrowed(&tx.tx)),
+        block.txs.iter().map(|tx| Ok(Cow::Borrowed(&tx.tx))),
         &mut numb_transactions,
         &mut tx_rw,
         &mut cache,

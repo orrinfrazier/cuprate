@@ -284,18 +284,16 @@ pub fn add_block_to_dynamic_tables<'a>(
     db: &BlockchainDatabase,
     block: &Block,
     block_hash: &BlockHash,
-    txs: impl Iterator<Item = Cow<'a, Transaction<Pruned>>>,
+    txs: impl Iterator<Item = DbResult<Cow<'a, Transaction<Pruned>>>>,
     numb_transactions: &mut u64,
     w: &mut fjall::OwnedWriteBatch,
     pre_rct_numb_outputs_cache: &mut HashMap<Amount, u64>,
 ) -> DbResult<()> {
     // Panic (should never happen) instead of allowing DB corruption.
     // <https://github.com/Cuprate/cuprate/pull/102#discussion_r1560020991>
-    assert!(
-        u32::try_from(block.number()).is_ok(),
-        "block.height ({}) > u32::MAX",
-        block.number(),
-    );
+    if u32::try_from(block.number()).is_err() {
+        return Err(BlockchainError::Corrupt("block height exceeds u32::MAX"));
+    }
 
     // Add the miner transaction first.
     let tx = block.miner_transaction();
@@ -311,6 +309,8 @@ pub fn add_block_to_dynamic_tables<'a>(
     *numb_transactions += 1;
 
     for (tx_hash, tx) in block.transactions.iter().zip(txs) {
+        let tx = tx?;
+
         #[cfg(debug_assertions)]
         {
             // Make sure the given tx is correct.
@@ -716,11 +716,15 @@ pub fn get_block(
             // If this is the top block, and it doesn't have a tx, then use the end of the pruned tape.
             None => tapes
                 .blob_tape_len(&db.pruned_blobs)
-                .expect("Required tape not found"),
+                .ok_or(BlockchainError::Corrupt("pruned_blobs tape missing"))?,
         };
 
-    let mut blob =
-        vec![0; usize::try_from(pruned_end_blob_idx - block_info.pruned_blob_idx).unwrap()];
+    let blob_len = pruned_end_blob_idx
+        .checked_sub(block_info.pruned_blob_idx)
+        .ok_or(BlockchainError::Corrupt("block blob indices out of order"))?;
+    let blob_cap = usize::try_from(blob_len)
+        .map_err(|_| BlockchainError::Corrupt("block blob length exceeds usize"))?;
+    let mut blob = vec![0; blob_cap];
 
     tapes.read_bytes(&db.pruned_blobs, block_info.pruned_blob_idx, &mut blob)?;
 
