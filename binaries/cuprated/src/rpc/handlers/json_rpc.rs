@@ -115,9 +115,11 @@ pub async fn map_request(
         Req::PruneBlockchain(r) => Resp::PruneBlockchain(not_available()?),
         Req::CalcPow(r) => Resp::CalcPow(not_available()?),
         Req::AddAuxPow(r) => Resp::AddAuxPow(not_available()?),
-        Req::GetOutputDistribution(r) => {
-            Resp::GetOutputDistribution(get_output_distribution(state, r).await?)
-        }
+        // TODO: `get_output_distribution` panics on a `todo!()` because the response
+        // type contains binary strings: <https://github.com/monero-project/monero/issues/9422>.
+        // Route to `not_available()` (matching `/get_output_distribution.bin`) until the
+        // distribution encoding is implemented.
+        Req::GetOutputDistribution(r) => Resp::GetOutputDistribution(not_available()?),
 
         // Unsupported RPC calls.
         Req::GetTxIdsLoose(_)
