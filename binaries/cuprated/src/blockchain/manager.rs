@@ -81,6 +81,7 @@ pub(crate) async fn init_blockchain_manager(
         broadcast_svc: clearnet_interface.broadcast_svc(),
         reorg_lock: Arc::clone(&launch_ctx.reorg_lock),
         fast_sync_hashes,
+        node_events: launch_ctx.node_events.clone(),
     };
 
     launch_ctx
@@ -116,6 +117,8 @@ pub struct BlockchainManager {
     reorg_lock: Arc<RwLock<()>>,
     /// Fast-sync hashes for this node's network.
     fast_sync_hashes: &'static [[u8; 32]],
+    /// Sender for the node event stream.
+    node_events: crate::events::NodeEventSender,
 }
 
 impl BlockchainManager {

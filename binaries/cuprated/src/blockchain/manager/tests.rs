@@ -5,7 +5,7 @@ use monero_oxide::{
     ed25519::CompressedPoint,
     transaction::{Input, Output, Timelock, Transaction, TransactionPrefix},
 };
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{broadcast, oneshot, watch};
 use tower::BoxError;
 
 use cuprate_blockchain::config::Config;
@@ -21,10 +21,11 @@ use crate::{
         check_add_genesis, manager::BlockchainManager, manager::BlockchainManagerCommand,
         ConsensusBlockchainReadHandle,
     },
+    events::{NodeEvent, NodeEventListener, NodeEventSender, NODE_EVENT_CHANNEL_CAPACITY},
     txpool::TxpoolManagerHandle,
 };
 
-async fn mock_manager(data_dir: PathBuf) -> BlockchainManager {
+async fn mock_manager(data_dir: PathBuf) -> (BlockchainManager, NodeEventListener) {
     let config = Config {
         blob_dir: data_dir.clone(),
         index_dir: data_dir.clone(),
@@ -66,16 +67,23 @@ async fn mock_manager(data_dir: PathBuf) -> BlockchainManager {
     .await
     .unwrap();
 
-    BlockchainManager {
-        blockchain_write_handle,
-        blockchain_read_handle,
-        txpool_manager_handle: TxpoolManagerHandle::mock(),
-        blockchain_context_service,
-        stop_current_block_downloader: Arc::new(Default::default()),
-        broadcast_svc: BroadcastSvc::mock(),
-        reorg_lock: Arc::new(Default::default()),
-        fast_sync_hashes: &[],
-    }
+    let node_events = NodeEventSender::new();
+    let listener = node_events.subscribe();
+
+    (
+        BlockchainManager {
+            blockchain_write_handle,
+            blockchain_read_handle,
+            txpool_manager_handle: TxpoolManagerHandle::mock(),
+            blockchain_context_service,
+            stop_current_block_downloader: Arc::new(Default::default()),
+            broadcast_svc: BroadcastSvc::mock(),
+            node_events,
+            reorg_lock: Arc::new(Default::default()),
+            fast_sync_hashes: &[],
+        },
+        listener,
+    )
 }
 
 fn generate_block(context: &BlockchainContext) -> Block {
@@ -115,10 +123,12 @@ fn generate_block(context: &BlockchainContext) -> Block {
 async fn simple_reorg() {
     // create 2 managers
     let data_dir_1 = tempfile::tempdir().unwrap();
-    let mut manager_1 = mock_manager(data_dir_1.path().to_path_buf()).await;
+    let manager_1_with_events = mock_manager(data_dir_1.path().to_path_buf()).await;
+    let mut manager_1 = manager_1_with_events.0;
 
     let data_dir_2 = tempfile::tempdir().unwrap();
-    let mut manager_2 = mock_manager(data_dir_2.path().to_path_buf()).await;
+    let manager_2_with_events = mock_manager(data_dir_2.path().to_path_buf()).await;
+    let mut manager_2 = manager_2_with_events.0;
 
     // give both managers the same first non-genesis block
     let block_1 = generate_block(manager_1.blockchain_context_service.blockchain_context());
@@ -228,10 +238,12 @@ async fn simple_reorg_block_batch() {
 
     // create 2 managers
     let data_dir_1 = tempfile::tempdir().unwrap();
-    let mut manager_1 = mock_manager(data_dir_1.path().to_path_buf()).await;
+    let manager_1_with_events = mock_manager(data_dir_1.path().to_path_buf()).await;
+    let mut manager_1 = manager_1_with_events.0;
 
     let data_dir_2 = tempfile::tempdir().unwrap();
-    let mut manager_2 = mock_manager(data_dir_2.path().to_path_buf()).await;
+    let manager_2_with_events = mock_manager(data_dir_2.path().to_path_buf()).await;
+    let mut manager_2 = manager_2_with_events.0;
 
     // give both managers the same first non-genesis block
     let block_1 = generate_block(manager_1.blockchain_context_service.blockchain_context());
@@ -337,7 +349,8 @@ async fn simple_reorg_block_batch() {
 #[tokio::test]
 async fn recover_bad_reorg() {
     let data_dir_1 = tempfile::tempdir().unwrap();
-    let mut manager_1 = mock_manager(data_dir_1.path().to_path_buf()).await;
+    let manager_1_with_events = mock_manager(data_dir_1.path().to_path_buf()).await;
+    let mut manager_1 = manager_1_with_events.0;
 
     let context_1 = manager_1
         .blockchain_context_service
@@ -441,4 +454,196 @@ async fn recover_bad_reorg() {
         &context,
         manager_1.blockchain_context_service.blockchain_context()
     );
+}
+
+#[tokio::test]
+async fn node_event_delivered_to_prior_subscriber() {
+    let s = NodeEventSender::new();
+    let mut l = s.subscribe();
+
+    s.send(NodeEvent::NewBlock {
+        height: 7,
+        hash: [1_u8; 32],
+    });
+
+    assert_eq!(
+        l.recv().await.unwrap(),
+        NodeEvent::NewBlock {
+            height: 7,
+            hash: [1_u8; 32],
+        }
+    );
+}
+
+#[tokio::test]
+async fn node_event_two_subscribers_both_receive() {
+    let s = NodeEventSender::new();
+    let mut l1 = s.subscribe();
+    let mut l2 = s.subscribe();
+    let event = NodeEvent::NewBlock {
+        height: 3,
+        hash: [2_u8; 32],
+    };
+
+    s.send(event.clone());
+
+    assert_eq!(l1.recv().await.unwrap(), event);
+    assert_eq!(l2.recv().await.unwrap(), event);
+}
+
+#[test]
+fn node_event_no_subscriber_is_noop() {
+    let sender = NodeEventSender::new();
+
+    sender.send(NodeEvent::NewBlock {
+        height: 5,
+        hash: [9_u8; 32],
+    });
+}
+
+#[test]
+fn node_event_late_subscriber_misses_prior() {
+    let s = NodeEventSender::new();
+    s.send(NodeEvent::NewBlock {
+        height: 8,
+        hash: [4_u8; 32],
+    });
+
+    let mut listener = s.subscribe();
+
+    assert_eq!(
+        listener.try_recv(),
+        Err(broadcast::error::TryRecvError::Empty)
+    );
+}
+
+#[test]
+fn node_event_channel_capacity_is_256() {
+    assert_eq!(NODE_EVENT_CHANNEL_CAPACITY, 256);
+}
+
+#[tokio::test]
+async fn new_block_emits_new_block_event() {
+    let data_dir = tempfile::tempdir().unwrap();
+    let manager_with_events = mock_manager(data_dir.path().to_path_buf()).await;
+    let mut manager = manager_with_events.0;
+    let mut listener = manager_with_events.1;
+
+    let block = generate_block(manager.blockchain_context_service.blockchain_context());
+    let hash = block.hash();
+
+    manager
+        .handle_command(BlockchainManagerCommand::AddBlock {
+            block,
+            prepped_txs: HashMap::new(),
+            response_tx: oneshot::channel().0,
+        })
+        .await;
+
+    assert_eq!(
+        listener.try_recv(),
+        Ok(NodeEvent::NewBlock { height: 1, hash })
+    );
+    assert_eq!(
+        listener.try_recv(),
+        Err(broadcast::error::TryRecvError::Empty)
+    );
+}
+
+#[tokio::test]
+async fn reorg_emits_reorg_event() {
+    let data_dir_1 = tempfile::tempdir().unwrap();
+    let manager_1_with_events = mock_manager(data_dir_1.path().to_path_buf()).await;
+    let mut manager_1 = manager_1_with_events.0;
+    let mut listener = manager_1_with_events.1;
+
+    let data_dir_2 = tempfile::tempdir().unwrap();
+    let manager_2_with_events = mock_manager(data_dir_2.path().to_path_buf()).await;
+    let mut manager_2 = manager_2_with_events.0;
+
+    let block_1 = generate_block(manager_1.blockchain_context_service.blockchain_context());
+
+    manager_1
+        .handle_command(BlockchainManagerCommand::AddBlock {
+            block: block_1.clone(),
+            prepped_txs: HashMap::new(),
+            response_tx: oneshot::channel().0,
+        })
+        .await;
+
+    manager_2
+        .handle_command(BlockchainManagerCommand::AddBlock {
+            block: block_1,
+            prepped_txs: HashMap::new(),
+            response_tx: oneshot::channel().0,
+        })
+        .await;
+
+    let block_2a = generate_block(manager_1.blockchain_context_service.blockchain_context());
+    let block_2b = generate_block(manager_2.blockchain_context_service.blockchain_context());
+
+    manager_1
+        .handle_command(BlockchainManagerCommand::AddBlock {
+            block: block_2a,
+            prepped_txs: HashMap::new(),
+            response_tx: oneshot::channel().0,
+        })
+        .await;
+
+    manager_2
+        .handle_command(BlockchainManagerCommand::AddBlock {
+            block: block_2b.clone(),
+            prepped_txs: HashMap::new(),
+            response_tx: oneshot::channel().0,
+        })
+        .await;
+
+    manager_1
+        .handle_command(BlockchainManagerCommand::AddBlock {
+            block: block_2b,
+            prepped_txs: HashMap::new(),
+            response_tx: oneshot::channel().0,
+        })
+        .await;
+
+    let block_3 = generate_block(manager_2.blockchain_context_service.blockchain_context());
+
+    // Discard the `NewBlock` events emitted while building the initial main chain (block_1 and
+    // block_2a were added as live `Incoming` blocks). We only want to observe what the reorg itself
+    // emits.
+    while listener.try_recv().is_ok() {}
+
+    manager_1
+        .handle_command(BlockchainManagerCommand::AddBlock {
+            block: block_3,
+            prepped_txs: HashMap::new(),
+            response_tx: oneshot::channel().0,
+        })
+        .await;
+
+    let mut events = Vec::new();
+    loop {
+        match listener.try_recv() {
+            Ok(event) => events.push(event),
+            Err(broadcast::error::TryRecvError::Empty) => break,
+            Err(err) => panic!("unexpected broadcast receive error: {err:?}"),
+        }
+    }
+
+    let chain_context = manager_1
+        .blockchain_context_service
+        .blockchain_context()
+        .clone();
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        NodeEvent::Reorg {
+            split_height: 2,
+            new_top_hash: _,
+            new_chain_height
+        } if *new_chain_height == chain_context.chain_height
+    )));
+    assert!(!events
+        .iter()
+        .any(|event| matches!(event, NodeEvent::NewBlock { .. })));
 }
